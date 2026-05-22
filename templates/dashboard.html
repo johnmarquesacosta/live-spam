@@ -1,0 +1,1743 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StreamDeck — Automação de Transmissões</title>
+    <meta name="description" content="StreamDeck: Gerenciador de transmissões FFmpeg com suporte a NVIDIA NVENC e Apple VideoToolbox" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #07080a;
+        --surface: #0e1015;
+        --panel: #13161d;
+        --border: #1c2030;
+        --border-hover: #2a3050;
+        --accent: #ff4d1c;
+        --accent-dim: rgba(255, 77, 28, 0.12);
+        --accent2: #ff8c42;
+        --green: #00e5a0;
+        --green-dim: rgba(0, 229, 160, 0.12);
+        --yellow: #ffd166;
+        --yellow-dim: rgba(255, 209, 102, 0.12);
+        --red: #ff3b5c;
+        --red-dim: rgba(255, 59, 92, 0.12);
+        --blue: #4d9fff;
+        --blue-dim: rgba(77, 159, 255, 0.12);
+        --text: #e2e8f0;
+        --muted: #4e5a70;
+        --mono: 'JetBrains Mono', monospace;
+        --sans: 'Syne', sans-serif;
+        --radius: 10px;
+        --radius-sm: 6px;
+        --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      *, *::before, *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
+
+      /* ─── Ambient Grid ─── */
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(255, 77, 28, 0.025) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 77, 28, 0.025) 1px, transparent 1px);
+        background-size: 48px 48px;
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      /* ─── Ambient Glow — appears when streams are live ─── */
+      body::after {
+        content: '';
+        position: fixed;
+        top: -30%;
+        left: 50%;
+        width: 80vw;
+        height: 60vh;
+        transform: translateX(-50%);
+        background: radial-gradient(ellipse at center, rgba(255, 77, 28, 0.06) 0%, transparent 70%);
+        pointer-events: none;
+        z-index: 0;
+        opacity: 0;
+        transition: opacity 1s ease;
+      }
+      body.has-live::after {
+        opacity: 1;
+        animation: ambient-breathe 6s ease-in-out infinite;
+      }
+      @keyframes ambient-breathe {
+        0%, 100% { opacity: 0.8; }
+        50% { opacity: 1; }
+      }
+
+      /* ─── Header ─── */
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        background: rgba(7, 8, 10, 0.88);
+        backdrop-filter: blur(20px) saturate(1.4);
+        -webkit-backdrop-filter: blur(20px) saturate(1.4);
+        border-bottom: 1px solid var(--border);
+        padding: 0 32px;
+        height: 60px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .header-glow {
+        position: absolute;
+        bottom: -1px;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, var(--accent), var(--accent2), var(--accent), transparent);
+        opacity: 0;
+        transition: opacity 0.6s ease;
+      }
+      body.has-live .header-glow {
+        opacity: 1;
+        animation: glow-slide 4s linear infinite;
+      }
+      @keyframes glow-slide {
+        0% { background-position: -200% center; }
+        100% { background-position: 200% center; }
+      }
+
+      .logo {
+        font-family: var(--sans);
+        font-weight: 800;
+        font-size: 1.2rem;
+        letter-spacing: -0.03em;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        position: relative;
+      }
+
+      .logo-icon {
+        width: 30px;
+        height: 30px;
+        background: linear-gradient(135deg, var(--accent), var(--accent2));
+        clip-path: polygon(0 25%, 50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        animation: pulse-logo 3s ease-in-out infinite;
+        box-shadow: 0 0 20px rgba(255, 77, 28, 0.3);
+      }
+
+      @keyframes pulse-logo {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(0.92); opacity: 0.8; }
+      }
+
+      .header-status {
+        font-family: var(--mono);
+        font-size: 0.7rem;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 24px;
+      }
+
+      .live-badge {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 0.68rem;
+        font-weight: 700;
+        color: var(--green);
+        letter-spacing: 0.08em;
+        padding: 4px 12px;
+        border-radius: 20px;
+        background: rgba(0, 229, 160, 0.08);
+        border: 1px solid rgba(0, 229, 160, 0.15);
+        transition: all 0.3s;
+      }
+
+      .live-dot {
+        width: 7px;
+        height: 7px;
+        background: var(--green);
+        border-radius: 50%;
+        animation: blink 1.2s ease-in-out infinite;
+        box-shadow: 0 0 8px rgba(0, 229, 160, 0.6);
+      }
+
+      @keyframes blink {
+        0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(0, 229, 160, 0.6); }
+        50% { opacity: 0.2; box-shadow: 0 0 2px rgba(0, 229, 160, 0.2); }
+      }
+
+      /* ─── Layout ─── */
+      .container {
+        max-width: 1440px;
+        margin: 0 auto;
+        padding: 28px 32px;
+        position: relative;
+        z-index: 1;
+      }
+
+      /* ─── Stats bar ─── */
+      .stats-row {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+        margin-bottom: 28px;
+      }
+
+      .stat-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 18px 22px;
+        position: relative;
+        overflow: hidden;
+        transition: border-color var(--transition), transform var(--transition);
+      }
+
+      .stat-card:hover {
+        border-color: var(--border-hover);
+        transform: translateY(-2px);
+      }
+
+      .stat-card::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, var(--accent), var(--accent2));
+        transform: scaleX(0);
+        transform-origin: left;
+        transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .stat-card:hover::after {
+        transform: scaleX(1);
+      }
+
+      .stat-label {
+        font-family: var(--mono);
+        font-size: 0.6rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        margin-bottom: 8px;
+      }
+
+      .stat-value {
+        font-family: var(--mono);
+        font-size: 1.6rem;
+        font-weight: 700;
+        line-height: 1;
+      }
+
+      .stat-sub {
+        font-size: 0.62rem;
+        color: var(--muted);
+        margin-top: 6px;
+        font-family: var(--mono);
+      }
+
+      /* ─── Two column layout ─── */
+      .main-grid {
+        display: grid;
+        grid-template-columns: 1fr 380px;
+        gap: 22px;
+      }
+
+      /* ─── Panel ─── */
+      .panel {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+        transition: border-color var(--transition);
+      }
+
+      .panel:hover {
+        border-color: var(--border-hover);
+      }
+
+      .panel-header {
+        padding: 16px 22px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .panel-title {
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .panel-title span {
+        color: var(--text);
+      }
+
+      .panel-body {
+        padding: 22px;
+      }
+
+      /* ─── Streams list ─── */
+      .streams-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .stream-card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 18px;
+        transition: all var(--transition);
+        cursor: default;
+        animation: card-enter 0.35s cubic-bezier(0.4, 0, 0.2, 1) both;
+        position: relative;
+        overflow: hidden;
+      }
+
+      @keyframes card-enter {
+        from { opacity: 0; transform: translateY(12px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      .stream-card:hover {
+        border-color: var(--border-hover);
+        transform: translateY(-1px);
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+      }
+
+      .stream-card.running {
+        border-left: 3px solid var(--green);
+      }
+      .stream-card.running::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 3px;
+        background: var(--green);
+        box-shadow: 0 0 16px rgba(0, 229, 160, 0.4);
+        animation: live-pulse 2s ease-in-out infinite;
+      }
+      @keyframes live-pulse {
+        0%, 100% { box-shadow: 0 0 8px rgba(0, 229, 160, 0.3); }
+        50% { box-shadow: 0 0 20px rgba(0, 229, 160, 0.6); }
+      }
+
+      .stream-card.error {
+        border-left: 3px solid var(--red);
+      }
+      .stream-card.stopped, .stream-card.idle {
+        border-left: 3px solid var(--muted);
+      }
+
+      .stream-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+
+      .stream-name {
+        font-weight: 700;
+        font-size: 0.95rem;
+        letter-spacing: -0.01em;
+      }
+
+      .stream-meta {
+        font-family: var(--mono);
+        font-size: 0.62rem;
+        color: var(--muted);
+        margin-top: 4px;
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-family: var(--mono);
+        font-size: 0.6rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        white-space: nowrap;
+      }
+
+      .badge-running {
+        background: var(--green-dim);
+        color: var(--green);
+        border: 1px solid rgba(0, 229, 160, 0.2);
+      }
+      .badge-idle, .badge-stopped {
+        background: rgba(78, 90, 112, 0.15);
+        color: var(--muted);
+        border: 1px solid rgba(78, 90, 112, 0.2);
+      }
+      .badge-error {
+        background: var(--red-dim);
+        color: var(--red);
+        border: 1px solid rgba(255, 59, 92, 0.2);
+      }
+      .badge-starting {
+        background: var(--yellow-dim);
+        color: var(--yellow);
+        border: 1px solid rgba(255, 209, 102, 0.2);
+        animation: badge-pulse 1.5s ease-in-out infinite;
+      }
+      @keyframes badge-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.6; }
+      }
+
+      .encoder-badge {
+        padding: 3px 9px;
+        border-radius: 4px;
+        font-family: var(--mono);
+        font-size: 0.56rem;
+        background: var(--blue-dim);
+        color: var(--blue);
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+
+      .stream-files {
+        font-family: var(--mono);
+        font-size: 0.6rem;
+        color: var(--muted);
+        margin: 10px 0;
+        padding: 10px 12px;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: var(--radius-sm);
+        max-height: 64px;
+        overflow-y: auto;
+        line-height: 1.7;
+        border: 1px solid rgba(255, 255, 255, 0.03);
+      }
+
+      .stream-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+      }
+
+      /* ─── Buttons ─── */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 16px;
+        border-radius: var(--radius-sm);
+        font-family: var(--mono);
+        font-size: 0.64rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        border: none;
+        cursor: pointer;
+        transition: all var(--transition);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .btn::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: rgba(255, 255, 255, 0);
+        transition: background 0.15s;
+      }
+      .btn:hover::after {
+        background: rgba(255, 255, 255, 0.05);
+      }
+      .btn:active {
+        transform: scale(0.97);
+      }
+
+      .btn-start {
+        background: var(--green-dim);
+        color: var(--green);
+        border: 1px solid rgba(0, 229, 160, 0.15);
+      }
+      .btn-start:hover { border-color: rgba(0, 229, 160, 0.35); }
+
+      .btn-stop {
+        background: var(--red-dim);
+        color: var(--red);
+        border: 1px solid rgba(255, 59, 92, 0.15);
+      }
+      .btn-stop:hover { border-color: rgba(255, 59, 92, 0.35); }
+
+      .btn-restart {
+        background: var(--yellow-dim);
+        color: var(--yellow);
+        border: 1px solid rgba(255, 209, 102, 0.15);
+      }
+      .btn-restart:hover { border-color: rgba(255, 209, 102, 0.35); }
+
+      .btn-delete {
+        background: rgba(78, 90, 112, 0.1);
+        color: var(--muted);
+        border: 1px solid transparent;
+      }
+      .btn-delete:hover {
+        background: var(--red-dim);
+        color: var(--red);
+        border-color: rgba(255, 59, 92, 0.15);
+      }
+
+      .btn-primary {
+        background: linear-gradient(135deg, var(--accent), #e03d10);
+        color: white;
+        width: 100%;
+        justify-content: center;
+        padding: 12px;
+        font-size: 0.72rem;
+        border-radius: var(--radius-sm);
+        box-shadow: 0 4px 20px rgba(255, 77, 28, 0.25);
+      }
+      .btn-primary:hover {
+        box-shadow: 0 6px 28px rgba(255, 77, 28, 0.4);
+        transform: translateY(-1px);
+      }
+      .btn-primary:active {
+        transform: translateY(0);
+      }
+
+      .btn-secondary {
+        background: var(--panel);
+        color: var(--text);
+        border: 1px solid var(--border);
+      }
+      .btn-secondary:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .btn-sm {
+        padding: 5px 11px;
+        font-size: 0.58rem;
+      }
+
+      .btn:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+        transform: none !important;
+      }
+
+      /* ─── Form ─── */
+      .form-group {
+        margin-bottom: 16px;
+      }
+
+      label {
+        display: block;
+        font-family: var(--mono);
+        font-size: 0.6rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-bottom: 6px;
+      }
+
+      input, select, textarea {
+        width: 100%;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 10px 14px;
+        color: var(--text);
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        outline: none;
+        transition: all var(--transition);
+      }
+
+      input:focus, select:focus, textarea:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(255, 77, 28, 0.08);
+      }
+
+      select option {
+        background: var(--panel);
+      }
+
+      .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      /* Stream key field with toggle */
+      .key-field {
+        position: relative;
+      }
+      .key-field input {
+        padding-right: 44px;
+      }
+      .key-toggle {
+        position: absolute;
+        right: 1px;
+        top: 1px;
+        bottom: 1px;
+        width: 40px;
+        background: var(--panel);
+        border: none;
+        border-left: 1px solid var(--border);
+        border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 0.8rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: color var(--transition);
+      }
+      .key-toggle:hover {
+        color: var(--accent);
+      }
+
+      /* Auto-start toggle */
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 16px;
+        padding: 10px 14px;
+        background: var(--panel);
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border);
+      }
+      .toggle-row label {
+        margin: 0;
+        font-size: 0.65rem;
+        cursor: pointer;
+      }
+      .toggle-switch {
+        position: relative;
+        width: 36px;
+        height: 20px;
+        flex-shrink: 0;
+      }
+      .toggle-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+        position: absolute;
+      }
+      .toggle-slider {
+        position: absolute;
+        inset: 0;
+        background: var(--border);
+        border-radius: 20px;
+        cursor: pointer;
+        transition: background 0.25s;
+      }
+      .toggle-slider::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
+        background: var(--muted);
+        border-radius: 50%;
+        transition: all 0.25s;
+      }
+      .toggle-switch input:checked + .toggle-slider {
+        background: var(--accent);
+      }
+      .toggle-switch input:checked + .toggle-slider::after {
+        left: 18px;
+        background: white;
+      }
+
+      /* ─── File picker ─── */
+      .file-list {
+        max-height: 160px;
+        overflow-y: auto;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+      }
+
+      .file-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 14px;
+        border-bottom: 1px solid var(--border);
+        font-family: var(--mono);
+        font-size: 0.64rem;
+        cursor: pointer;
+        transition: all 0.12s;
+      }
+
+      .file-item:last-child { border-bottom: none; }
+      .file-item:hover { background: rgba(255, 77, 28, 0.05); }
+      .file-item.selected {
+        background: var(--accent-dim);
+        color: var(--accent2);
+      }
+      .file-item.selected::before {
+        content: '✓ ';
+        color: var(--accent);
+        font-weight: 700;
+      }
+
+      .file-size {
+        color: var(--muted);
+        font-size: 0.56rem;
+      }
+
+      /* ─── Logs ─── */
+      .log-box {
+        font-family: var(--mono);
+        font-size: 0.6rem;
+        line-height: 1.8;
+        color: #6a7a90;
+        background: #050709;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 14px;
+        height: 220px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+
+      .log-box .log-error { color: var(--red); }
+      .log-box .log-ok { color: var(--green); }
+      .log-box .log-warn { color: var(--yellow); }
+
+      /* ─── Upload area ─── */
+      .upload-zone {
+        border: 2px dashed var(--border);
+        border-radius: var(--radius);
+        padding: 32px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.25s;
+        position: relative;
+      }
+
+      .upload-zone:hover, .upload-zone.drag-over {
+        border-color: var(--accent);
+        background: rgba(255, 77, 28, 0.03);
+        transform: scale(1.01);
+      }
+
+      .upload-zone input[type='file'] {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        cursor: pointer;
+        width: 100%;
+        height: 100%;
+      }
+
+      .upload-icon {
+        font-size: 2.2rem;
+        margin-bottom: 10px;
+        display: block;
+      }
+
+      .upload-zone p {
+        font-size: 0.72rem;
+        color: var(--muted);
+        font-family: var(--mono);
+      }
+      .upload-zone strong { color: var(--accent); }
+
+      /* ─── Progress bar ─── */
+      .progress-bar {
+        width: 100%;
+        height: 3px;
+        background: var(--border);
+        border-radius: 3px;
+        overflow: hidden;
+        margin-top: 6px;
+      }
+
+      .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--accent), var(--accent2));
+        width: 0%;
+        transition: width 0.2s;
+        border-radius: 3px;
+      }
+
+      /* ─── Divider ─── */
+      .divider {
+        border: none;
+        border-top: 1px solid var(--border);
+        margin: 18px 0;
+      }
+
+      /* ─── Tabs ─── */
+      .tabs {
+        display: flex;
+        gap: 0;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 18px;
+      }
+
+      .tab {
+        padding: 10px 18px;
+        font-family: var(--mono);
+        font-size: 0.64rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        cursor: pointer;
+        border: none;
+        border-bottom: 2px solid transparent;
+        transition: all var(--transition);
+        background: none;
+      }
+
+      .tab:hover { color: var(--text); }
+      .tab.active {
+        color: var(--accent);
+        border-bottom-color: var(--accent);
+      }
+
+      .tab-content { display: none; }
+      .tab-content.active { display: block; }
+
+      /* ─── Empty state ─── */
+      .empty-state {
+        text-align: center;
+        padding: 48px 24px;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 0.7rem;
+        line-height: 1.8;
+      }
+
+      .empty-state .icon {
+        font-size: 2.8rem;
+        margin-bottom: 14px;
+        display: block;
+        filter: grayscale(0.5);
+      }
+
+      /* ─── System info ─── */
+      .sys-info {
+        font-family: var(--mono);
+        font-size: 0.64rem;
+        color: var(--muted);
+        line-height: 2.2;
+      }
+
+      .sys-info span { color: var(--text); }
+
+      .encoder-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .encoder-chip {
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.58rem;
+        font-weight: 700;
+        font-family: var(--mono);
+        letter-spacing: 0.04em;
+      }
+
+      .chip-nvenc {
+        background: var(--green-dim);
+        color: var(--green);
+        border: 1px solid rgba(0, 229, 160, 0.15);
+      }
+      .chip-videotoolbox {
+        background: var(--blue-dim);
+        color: var(--blue);
+        border: 1px solid rgba(77, 159, 255, 0.15);
+      }
+      .chip-cpu {
+        background: var(--yellow-dim);
+        color: var(--yellow);
+        border: 1px solid rgba(255, 209, 102, 0.15);
+      }
+
+      /* ─── Uptime ─── */
+      .uptime {
+        font-family: var(--mono);
+        font-size: 0.58rem;
+        color: var(--green);
+        background: var(--green-dim);
+        padding: 3px 9px;
+        border-radius: 20px;
+        border: 1px solid rgba(0, 229, 160, 0.15);
+        white-space: nowrap;
+      }
+
+      /* ─── Toast Notifications ─── */
+      .toast-container {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column-reverse;
+        gap: 10px;
+        pointer-events: none;
+      }
+
+      .toast {
+        font-family: var(--mono);
+        font-size: 0.68rem;
+        padding: 14px 20px;
+        border-radius: var(--radius-sm);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        pointer-events: auto;
+        animation: toast-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        max-width: 380px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid transparent;
+      }
+
+      .toast.removing {
+        animation: toast-out 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+      }
+
+      .toast-success {
+        background: rgba(0, 229, 160, 0.12);
+        color: var(--green);
+        border-color: rgba(0, 229, 160, 0.2);
+      }
+      .toast-error {
+        background: rgba(255, 59, 92, 0.12);
+        color: var(--red);
+        border-color: rgba(255, 59, 92, 0.2);
+      }
+      .toast-info {
+        background: rgba(77, 159, 255, 0.12);
+        color: var(--blue);
+        border-color: rgba(77, 159, 255, 0.2);
+      }
+      .toast-warn {
+        background: rgba(255, 209, 102, 0.12);
+        color: var(--yellow);
+        border-color: rgba(255, 209, 102, 0.2);
+      }
+
+      @keyframes toast-in {
+        from { opacity: 0; transform: translateX(40px) scale(0.96); }
+        to { opacity: 1; transform: translateX(0) scale(1); }
+      }
+      @keyframes toast-out {
+        from { opacity: 1; transform: translateX(0) scale(1); }
+        to { opacity: 0; transform: translateX(40px) scale(0.96); }
+      }
+
+      /* ─── Scrollbars ─── */
+      ::-webkit-scrollbar { width: 4px; height: 4px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+      /* ─── Alert (form inline) ─── */
+      .alert {
+        padding: 10px 14px;
+        border-radius: var(--radius-sm);
+        font-family: var(--mono);
+        font-size: 0.64rem;
+        margin-bottom: 14px;
+        display: none;
+        animation: card-enter 0.3s ease;
+      }
+      .alert.show { display: block; }
+      .alert-error {
+        background: var(--red-dim);
+        color: var(--red);
+        border: 1px solid rgba(255, 59, 92, 0.25);
+      }
+      .alert-success {
+        background: var(--green-dim);
+        color: var(--green);
+        border: 1px solid rgba(0, 229, 160, 0.2);
+      }
+
+      /* ─── Responsive ─── */
+      @media (max-width: 960px) {
+        .main-grid { grid-template-columns: 1fr; }
+        .stats-row { grid-template-columns: repeat(2, 1fr); }
+        .form-row { grid-template-columns: 1fr; }
+        header { padding: 0 18px; }
+        .container { padding: 18px; }
+      }
+
+      @media (max-width: 480px) {
+        .stats-row { grid-template-columns: 1fr; }
+        .stream-actions { flex-direction: column; }
+        .stream-actions .btn { width: 100%; justify-content: center; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="logo">
+        <div class="logo-icon"></div>
+        StreamDeck
+      </div>
+      <div class="header-status">
+        <div class="live-badge" id="liveCount">
+          <div class="live-dot"></div>
+          <span>0 AO VIVO</span>
+        </div>
+        <span id="headerTime" style="font-size: 0.65rem"></span>
+      </div>
+      <div class="header-glow"></div>
+    </header>
+
+    <div class="container">
+      <!-- Stats -->
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-label">Streams Ativos</div>
+          <div class="stat-value" id="statRunning" style="color: var(--green)">0</div>
+          <div class="stat-sub">transmitindo agora</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total de Streams</div>
+          <div class="stat-value" id="statTotal">0</div>
+          <div class="stat-sub">criados nesta sessão</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Arquivos</div>
+          <div class="stat-value" id="statFiles">0</div>
+          <div class="stat-sub">disponíveis para transmissão</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">FFmpeg</div>
+          <div class="stat-value" id="statFFmpeg" style="font-size: 1rem; padding-top: 4px">—</div>
+          <div class="stat-sub" id="statPlatform">verificando...</div>
+        </div>
+      </div>
+
+      <!-- Main -->
+      <div class="main-grid">
+        <!-- Left: Streams -->
+        <div>
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">📡 <span>Transmissões</span></div>
+              <button class="btn btn-secondary btn-sm" onclick="refreshStreams()">↻ Atualizar</button>
+            </div>
+            <div class="panel-body">
+              <div id="streamsList" class="streams-list">
+                <div class="empty-state">
+                  <span class="icon">📡</span>
+                  Nenhuma transmissão criada ainda.<br />
+                  Use o painel à direita para criar uma.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Logs panel — hidden by default -->
+          <div class="panel" id="logsPanel" style="margin-top: 18px; display: none">
+            <div class="panel-header">
+              <div class="panel-title">
+                🖥 <span>Logs</span> —
+                <span id="logStreamName" style="color: var(--accent)"></span>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="closeLogsPanel()">✕ Fechar</button>
+            </div>
+            <div class="panel-body">
+              <div id="logBox" class="log-box">Selecione uma transmissão para ver os logs...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Sidebar -->
+        <div style="display: flex; flex-direction: column; gap: 18px">
+          <!-- New stream -->
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">＋ <span>Nova Transmissão</span></div>
+            </div>
+            <div class="panel-body">
+              <div id="formAlert" class="alert"></div>
+
+              <div class="tabs">
+                <button class="tab active" onclick="switchTab('config')">Configurar</button>
+                <button class="tab" onclick="switchTab('files')">Arquivos</button>
+                <button class="tab" onclick="switchTab('system')">Sistema</button>
+              </div>
+
+              <!-- Config tab -->
+              <div class="tab-content active" id="tab-config">
+                <div class="form-group">
+                  <label for="streamName">Nome da Transmissão</label>
+                  <input type="text" id="streamName" placeholder="Ex: Radio 24h, Live Gaming..." />
+                </div>
+                <div class="form-group">
+                  <label for="rtmpUrl">RTMP URL</label>
+                  <input type="text" id="rtmpUrl" value="rtmp://a.rtmp.youtube.com/live2" placeholder="rtmp://..." />
+                </div>
+                <div class="form-group">
+                  <label for="streamKey">Stream Key (YouTube)</label>
+                  <div class="key-field">
+                    <input type="password" id="streamKey" placeholder="xxxx-xxxx-xxxx-xxxx-xxxx" />
+                    <button class="key-toggle" onclick="toggleKeyVisibility()" title="Mostrar/Ocultar" type="button">👁</button>
+                  </div>
+                </div>
+
+                <hr class="divider" />
+
+                <div class="form-group">
+                  <label>Arquivos para transmitir</label>
+                  <div id="filePickerList" class="file-list" style="min-height: 60px">
+                    <div style="padding: 14px; color: var(--muted); font-size: 0.62rem; font-family: var(--mono); text-align: center">
+                      Nenhum arquivo. Vá para aba Arquivos.
+                    </div>
+                  </div>
+                  <div style="font-family: var(--mono); font-size: 0.58rem; color: var(--muted); margin-top: 6px">
+                    Clique para selecionar · múltipla seleção permitida
+                  </div>
+                </div>
+
+                <hr class="divider" />
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="streamMode">Modo</label>
+                    <select id="streamMode">
+                      <option value="loop">🔁 Loop infinito</option>
+                      <option value="playlist">📋 Playlist sequencial</option>
+                      <option value="once">▶ Transmitir uma vez</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="encoder">Encoder</label>
+                    <select id="encoder">
+                      <option value="cpu">CPU (libx264)</option>
+                      <option value="nvenc">NVIDIA NVENC</option>
+                      <option value="videotoolbox">Apple VideoToolbox</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="resolution">Resolução</label>
+                    <select id="resolution">
+                      <option value="1920x1080">1080p (1920×1080)</option>
+                      <option value="1280x720" selected>720p (1280×720)</option>
+                      <option value="854x480">480p (854×480)</option>
+                      <option value="640x360">360p (640×360)</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="quality">Qualidade</label>
+                    <select id="quality">
+                      <option value="low">Baixa (~2.5 Mbps)</option>
+                      <option value="medium" selected>Média (~4.5 Mbps)</option>
+                      <option value="high">Alta (~8 Mbps)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label for="fps">FPS</label>
+                  <select id="fps">
+                    <option value="24">24 fps</option>
+                    <option value="30" selected>30 fps</option>
+                    <option value="60">60 fps</option>
+                  </select>
+                </div>
+
+                <div class="toggle-row">
+                  <div class="toggle-switch">
+                    <input type="checkbox" id="autoStart" />
+                    <span class="toggle-slider" onclick="document.getElementById('autoStart').click()"></span>
+                  </div>
+                  <label for="autoStart" style="text-transform: none; letter-spacing: 0; font-size: 0.66rem; color: var(--text)">
+                    Iniciar transmissão automaticamente
+                  </label>
+                </div>
+
+                <button class="btn btn-primary" id="createBtn" onclick="createStream()">
+                  ▶ CRIAR TRANSMISSÃO
+                </button>
+              </div>
+
+              <!-- Files tab -->
+              <div class="tab-content" id="tab-files">
+                <div class="upload-zone" id="uploadZone">
+                  <input type="file" id="fileInput" accept="video/*,.mkv,.ts,.m4v" multiple onchange="uploadFiles(this.files)" />
+                  <span class="upload-icon">📁</span>
+                  <p><strong>Arraste arquivos aqui</strong><br />ou clique para selecionar</p>
+                  <p style="margin-top: 8px; font-size: 0.56rem">MP4, MKV, AVI, MOV, TS — até 10 GB por arquivo</p>
+                </div>
+
+                <div id="uploadProgress" style="margin-top: 12px; display: none">
+                  <div style="font-family: var(--mono); font-size: 0.64rem; color: var(--muted); margin-bottom: 5px; display: flex; justify-content: space-between" id="uploadLabel">
+                    <span>Enviando...</span>
+                    <span id="uploadPercent"></span>
+                  </div>
+                  <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                  </div>
+                </div>
+
+                <hr class="divider" />
+                <div style="font-family: var(--mono); font-size: 0.6rem; color: var(--muted); margin-bottom: 12px; letter-spacing: 0.1em">
+                  ARQUIVOS DISPONÍVEIS
+                </div>
+                <div id="fileManagerList"></div>
+              </div>
+
+              <!-- System tab -->
+              <div class="tab-content" id="tab-system">
+                <div id="systemInfo" class="sys-info">
+                  <div style="text-align: center; padding: 24px; color: var(--muted); font-size: 0.64rem">
+                    Carregando informações do sistema...
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+      // ─── State ──────────────────────────────────────────────────────
+      let streams = [];
+      let files = [];
+      let selectedFiles = new Set();
+      let activeLogStreamId = null;
+      let refreshInterval = null;
+
+      // ─── Init ───────────────────────────────────────────────────────
+      document.addEventListener('DOMContentLoaded', () => {
+        loadSystem();
+        loadFiles();
+        refreshStreams();
+        refreshInterval = setInterval(refreshStreams, 3000);
+        setInterval(updateClock, 1000);
+        updateClock();
+        setupDragDrop();
+      });
+
+      function updateClock() {
+        document.getElementById('headerTime').textContent =
+          new Date().toLocaleTimeString('pt-BR');
+      }
+
+      // ─── Tabs ───────────────────────────────────────────────────────
+      function switchTab(name) {
+        document.querySelectorAll('.tab').forEach((t, i) => {
+          const tabs = ['config', 'files', 'system'];
+          t.classList.toggle('active', tabs[i] === name);
+        });
+        document.querySelectorAll('.tab-content').forEach((c) => {
+          c.classList.toggle('active', c.id === 'tab-' + name);
+        });
+        if (name === 'system') loadSystem();
+        if (name === 'files') loadFiles();
+      }
+
+      // ─── Toast Notifications ────────────────────────────────────────
+      function toast(message, type = 'info', duration = 4000) {
+        const container = document.getElementById('toastContainer');
+        const icons = {
+          success: '✓',
+          error: '✕',
+          info: 'ℹ',
+          warn: '⚠',
+        };
+        const el = document.createElement('div');
+        el.className = `toast toast-${type}`;
+        el.innerHTML = `<span style="font-size: 1rem">${icons[type] || '•'}</span> ${escapeHtml(message)}`;
+        container.appendChild(el);
+
+        setTimeout(() => {
+          el.classList.add('removing');
+          setTimeout(() => el.remove(), 300);
+        }, duration);
+      }
+
+      // ─── System info ────────────────────────────────────────────────
+      async function loadSystem() {
+        try {
+          const res = await fetch('/api/system');
+          const data = await res.json();
+
+          const ffmpegOk = data.ffmpeg_available;
+          document.getElementById('statFFmpeg').textContent = ffmpegOk ? '✓ OK' : '✗ FALTA';
+          document.getElementById('statFFmpeg').style.color = ffmpegOk ? 'var(--green)' : 'var(--red)';
+          document.getElementById('statPlatform').textContent = `${data.platform} ${data.machine}`;
+
+          const encoderColors = { nvenc: 'chip-nvenc', videotoolbox: 'chip-videotoolbox', cpu: 'chip-cpu' };
+          const encoderLabels = { nvenc: 'NVIDIA NVENC', videotoolbox: 'Apple VideoToolbox', cpu: 'CPU x264' };
+
+          const chips = data.available_encoders
+            .map(e => `<span class="encoder-chip ${encoderColors[e]}">${encoderLabels[e] || e}</span>`)
+            .join('');
+
+          document.getElementById('systemInfo').innerHTML = `
+            <div>Plataforma: <span>${data.platform} ${data.machine}</span></div>
+            <div>Python: <span>${data.python}</span></div>
+            <div>FFmpeg: <span style="color:${ffmpegOk ? 'var(--green)' : 'var(--red)'}">
+              ${ffmpegOk ? '✓ Instalado' : '✗ Não encontrado — instale FFmpeg'}</span></div>
+            <div style="margin-top:10px">Encoders disponíveis:</div>
+            <div class="encoder-list">${chips}</div>
+            <div style="margin-top:14px">Pasta de uploads: <span style="font-size:.58rem">${data.upload_dir}</span></div>
+          `;
+
+          // Auto-select best encoder
+          const sel = document.getElementById('encoder');
+          if (data.available_encoders.includes('nvenc')) sel.value = 'nvenc';
+          else if (data.available_encoders.includes('videotoolbox')) sel.value = 'videotoolbox';
+          else sel.value = 'cpu';
+        } catch (e) {
+          console.error('Erro ao carregar sistema:', e);
+        }
+      }
+
+      // ─── Files ──────────────────────────────────────────────────────
+      async function loadFiles() {
+        try {
+          const res = await fetch('/api/files');
+          files = await res.json();
+          document.getElementById('statFiles').textContent = files.length;
+          renderFilePicker();
+          renderFileManager();
+        } catch (e) {
+          console.error('Erro ao carregar arquivos:', e);
+        }
+      }
+
+      function renderFilePicker() {
+        const el = document.getElementById('filePickerList');
+        if (!files.length) {
+          el.innerHTML = `<div style="padding:14px;color:var(--muted);font-size:.62rem;font-family:var(--mono);text-align:center">
+            Nenhum arquivo. Vá para aba Arquivos.</div>`;
+          return;
+        }
+        el.innerHTML = files.map(f => `
+          <div class="file-item ${selectedFiles.has(f.name) ? 'selected' : ''}"
+               onclick="toggleFile('${f.name}', this)">
+            <span>${f.name}</span>
+            <span class="file-size">${f.size_mb} MB</span>
+          </div>
+        `).join('');
+      }
+
+      function toggleFile(name, el) {
+        if (selectedFiles.has(name)) {
+          selectedFiles.delete(name);
+          el.classList.remove('selected');
+        } else {
+          selectedFiles.add(name);
+          el.classList.add('selected');
+        }
+      }
+
+      function renderFileManager() {
+        const el = document.getElementById('fileManagerList');
+        if (!files.length) {
+          el.innerHTML = `<div style="text-align:center;padding:24px;color:var(--muted);font-family:var(--mono);font-size:.64rem">
+            Nenhum arquivo enviado ainda.</div>`;
+          return;
+        }
+        el.innerHTML = files.map(f => `
+          <div class="file-item">
+            <span>📹 ${f.name}</span>
+            <div style="display:flex;align-items:center;gap:10px">
+              <span class="file-size">${f.size_mb} MB</span>
+              <button class="btn btn-delete btn-sm" onclick="deleteFile('${f.name}')">✕</button>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      async function deleteFile(name) {
+        if (!confirm(`Deletar ${name}?`)) return;
+        await fetch(`/api/files/${encodeURIComponent(name)}`, { method: 'DELETE' });
+        selectedFiles.delete(name);
+        loadFiles();
+        toast(`Arquivo "${name}" removido`, 'info');
+      }
+
+      // ─── Upload with real XHR progress ──────────────────────────────
+      function setupDragDrop() {
+        const zone = document.getElementById('uploadZone');
+        zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
+        zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+        zone.addEventListener('drop', (e) => { e.preventDefault(); zone.classList.remove('drag-over'); uploadFiles(e.dataTransfer.files); });
+      }
+
+      async function uploadFiles(fileList) {
+        const progress = document.getElementById('uploadProgress');
+        const fill = document.getElementById('progressFill');
+        const label = document.getElementById('uploadLabel');
+        const pct = document.getElementById('uploadPercent');
+        progress.style.display = 'block';
+
+        for (let i = 0; i < fileList.length; i++) {
+          const file = fileList[i];
+          label.querySelector('span:first-child').textContent = `Enviando ${i + 1}/${fileList.length}: ${file.name}`;
+
+          try {
+            await new Promise((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+              const fd = new FormData();
+              fd.append('file', file);
+
+              xhr.upload.addEventListener('progress', (e) => {
+                if (e.lengthComputable) {
+                  const percent = Math.round((e.loaded / e.total) * 100);
+                  fill.style.width = percent + '%';
+                  pct.textContent = percent + '%';
+                }
+              });
+
+              xhr.addEventListener('load', () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                  resolve();
+                } else {
+                  try {
+                    const err = JSON.parse(xhr.responseText);
+                    reject(new Error(err.error || 'Erro no upload'));
+                  } catch {
+                    reject(new Error('Erro no upload'));
+                  }
+                }
+              });
+
+              xhr.addEventListener('error', () => reject(new Error('Falha na conexão')));
+              xhr.open('POST', '/api/files/upload');
+              xhr.send(fd);
+            });
+
+            toast(`Upload concluído: ${file.name}`, 'success');
+          } catch (e) {
+            toast(`Falha no upload de ${file.name}: ${e.message}`, 'error');
+          }
+        }
+
+        fill.style.width = '100%';
+        label.querySelector('span:first-child').textContent = '✓ Upload concluído';
+        pct.textContent = '';
+        setTimeout(() => {
+          progress.style.display = 'none';
+          fill.style.width = '0%';
+        }, 2500);
+        loadFiles();
+      }
+
+      // ─── Stream Key Toggle ──────────────────────────────────────────
+      function toggleKeyVisibility() {
+        const input = document.getElementById('streamKey');
+        const btn = document.querySelector('.key-toggle');
+        if (input.type === 'password') {
+          input.type = 'text';
+          btn.textContent = '🔒';
+        } else {
+          input.type = 'password';
+          btn.textContent = '👁';
+        }
+      }
+
+      // ─── Create stream ─────────────────────────────────────────────
+      async function createStream() {
+        const name = document.getElementById('streamName').value.trim();
+        const rtmpUrl = document.getElementById('rtmpUrl').value.trim();
+        const streamKey = document.getElementById('streamKey').value.trim();
+        const mode = document.getElementById('streamMode').value;
+        const encoder = document.getElementById('encoder').value;
+        const quality = document.getElementById('quality').value;
+        const resolution = document.getElementById('resolution').value;
+        const fps = document.getElementById('fps').value;
+        const autoStart = document.getElementById('autoStart').checked;
+
+        if (!name) return showAlert('formAlert', 'error', 'Informe um nome para a transmissão');
+        if (!rtmpUrl) return showAlert('formAlert', 'error', 'Informe a URL RTMP');
+        if (!streamKey) return showAlert('formAlert', 'error', 'Informe a stream key');
+        if (!selectedFiles.size) return showAlert('formAlert', 'error', 'Selecione pelo menos um arquivo');
+
+        const body = {
+          name,
+          rtmp_url: rtmpUrl,
+          stream_key: streamKey,
+          files: [...selectedFiles],
+          mode,
+          encoder,
+          quality,
+          resolution,
+          fps: parseInt(fps),
+          auto_start: autoStart,
+        };
+
+        const btn = document.getElementById('createBtn');
+        btn.disabled = true;
+        btn.textContent = '⏳ Criando...';
+
+        try {
+          const res = await fetch('/api/streams', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+
+          if (!res.ok) {
+            const err = await res.json();
+            showAlert('formAlert', 'error', err.error || 'Erro ao criar stream');
+            toast(err.error || 'Erro ao criar stream', 'error');
+            return;
+          }
+
+          const msg = autoStart
+            ? `Stream "${name}" criado e iniciado!`
+            : `Stream "${name}" criado com sucesso!`;
+
+          toast(msg, 'success');
+          showAlert('formAlert', 'success', `✓ ${msg}`);
+
+          // Reset form
+          document.getElementById('streamName').value = '';
+          document.getElementById('streamKey').value = '';
+          selectedFiles.clear();
+          document.getElementById('autoStart').checked = false;
+          renderFilePicker();
+          refreshStreams();
+        } catch (e) {
+          toast('Falha ao criar stream: ' + e.message, 'error');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '▶ CRIAR TRANSMISSÃO';
+        }
+      }
+
+      // ─── Streams ───────────────────────────────────────────────────
+      async function refreshStreams() {
+        try {
+          const res = await fetch('/api/streams');
+          streams = await res.json();
+
+          const running = streams.filter(s => s.status === 'running').length;
+          document.getElementById('statRunning').textContent = running;
+          document.getElementById('statTotal').textContent = streams.length;
+          document.getElementById('liveCount').querySelector('span').textContent = `${running} AO VIVO`;
+
+          // Ambient glow when streams are live
+          document.body.classList.toggle('has-live', running > 0);
+
+          renderStreams();
+          if (activeLogStreamId) refreshLogs(activeLogStreamId);
+        } catch (e) {
+          console.error('Erro ao atualizar streams:', e);
+        }
+      }
+
+      function renderStreams() {
+        const el = document.getElementById('streamsList');
+        if (!streams.length) {
+          el.innerHTML = `<div class="empty-state">
+            <span class="icon">📡</span>
+            Nenhuma transmissão criada ainda.<br>Use o painel à direita para criar uma.
+          </div>`;
+          return;
+        }
+
+        el.innerHTML = streams.map((s, idx) => {
+          const uptime = s.uptime_seconds ? formatUptime(s.uptime_seconds) : '';
+          const encoderLabels = { nvenc: 'NVENC', videotoolbox: 'VideoToolbox', cpu: 'CPU x264' };
+          const modeLabels = { loop: '🔁 Loop', playlist: '📋 Playlist', once: '▶ Uma vez' };
+
+          return `
+            <div class="stream-card ${s.status}" style="animation-delay: ${idx * 0.06}s">
+              <div class="stream-top">
+                <div>
+                  <div class="stream-name">${escapeHtml(s.name)}</div>
+                  <div class="stream-meta">
+                    <span>${modeLabels[s.mode] || s.mode}</span>
+                    <span>${s.resolution} @ ${s.fps}fps</span>
+                    <span class="encoder-badge">${encoderLabels[s.encoder] || s.encoder}</span>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  ${uptime ? `<span class="uptime">⏱ ${uptime}</span>` : ''}
+                  <span class="badge badge-${s.status}">${statusLabel(s.status)}</span>
+                </div>
+              </div>
+
+              <div class="stream-files">${s.files.map(f => `📹 ${escapeHtml(f)}`).join('\n')}</div>
+
+              ${s.error_msg ? `<div style="font-family:var(--mono);font-size:.58rem;color:var(--red);padding:6px 10px;background:var(--red-dim);border-radius:4px;margin-bottom:10px;border:1px solid rgba(255,59,92,.15)">${escapeHtml(s.error_msg)}</div>` : ''}
+
+              <div class="stream-actions">
+                ${s.status !== 'running' && s.status !== 'starting'
+                  ? `<button class="btn btn-start" onclick="startStream('${s.id}')">▶ Iniciar</button>`
+                  : `<button class="btn btn-stop" onclick="stopStream('${s.id}')">■ Parar</button>`
+                }
+                <button class="btn btn-restart btn-sm" onclick="restartStream('${s.id}')">↻ Restart</button>
+                <button class="btn btn-secondary btn-sm" onclick="openLogs('${s.id}', '${escapeHtml(s.name).replace(/'/g, "\\'")}')">📋 Logs</button>
+                <button class="btn btn-delete btn-sm" onclick="deleteStream('${s.id}')">✕</button>
+              </div>
+            </div>`;
+        }).join('');
+      }
+
+      function statusLabel(s) {
+        const labels = {
+          running: '● LIVE',
+          idle: '○ Parado',
+          error: '✕ Erro',
+          stopped: '○ Parado',
+          starting: '◌ Iniciando',
+        };
+        return labels[s] || s;
+      }
+
+      function formatUptime(secs) {
+        const h = Math.floor(secs / 3600);
+        const m = Math.floor((secs % 3600) / 60);
+        const s = secs % 60;
+        if (h > 0) return `${h}h${m.toString().padStart(2, '0')}m`;
+        if (m > 0) return `${m}m${s.toString().padStart(2, '0')}s`;
+        return `${s}s`;
+      }
+
+      async function startStream(id) {
+        const res = await fetch(`/api/streams/${id}/start`, { method: 'POST' });
+        const data = await res.json();
+        toast(data.message || 'Comando enviado', data.ok ? 'success' : 'warn');
+        refreshStreams();
+      }
+
+      async function stopStream(id) {
+        const res = await fetch(`/api/streams/${id}/stop`, { method: 'POST' });
+        const data = await res.json();
+        toast(data.message || 'Comando enviado', data.ok ? 'info' : 'warn');
+        refreshStreams();
+      }
+
+      async function restartStream(id) {
+        toast('Reiniciando stream...', 'info');
+        const res = await fetch(`/api/streams/${id}/restart`, { method: 'POST' });
+        const data = await res.json();
+        toast(data.message || 'Reiniciado', data.ok ? 'success' : 'error');
+        refreshStreams();
+      }
+
+      async function deleteStream(id) {
+        if (!confirm('Deletar esta transmissão?')) return;
+        await fetch(`/api/streams/${id}`, { method: 'DELETE' });
+        if (activeLogStreamId === id) closeLogsPanel();
+        toast('Transmissão removida', 'info');
+        refreshStreams();
+      }
+
+      // ─── Logs ──────────────────────────────────────────────────────
+      function openLogs(id, name) {
+        activeLogStreamId = id;
+        document.getElementById('logsPanel').style.display = 'block';
+        document.getElementById('logStreamName').textContent = name;
+        refreshLogs(id);
+        // Smooth scroll to logs
+        setTimeout(() => {
+          document.getElementById('logsPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+      }
+
+      function closeLogsPanel() {
+        document.getElementById('logsPanel').style.display = 'none';
+        activeLogStreamId = null;
+      }
+
+      async function refreshLogs(id) {
+        const stream = streams.find(s => s.id === id);
+        if (!stream) return;
+        const box = document.getElementById('logBox');
+        const logs = stream.logs || [];
+        if (!logs.length) {
+          box.textContent = 'Aguardando logs...';
+          return;
+        }
+        box.innerHTML = logs.map(l => {
+          const cls = (l.includes('ERRO') || l.includes('Error'))
+            ? 'log-error'
+            : l.includes('✓')
+              ? 'log-ok'
+              : l.includes('WARNING')
+                ? 'log-warn'
+                : '';
+          return cls
+            ? `<span class="${cls}">${escapeHtml(l)}</span>`
+            : escapeHtml(l);
+        }).join('\n');
+        box.scrollTop = box.scrollHeight;
+      }
+
+      function escapeHtml(s) {
+        if (!s) return '';
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+
+      // ─── Alerts ────────────────────────────────────────────────────
+      function showAlert(id, type, msg) {
+        const el = document.getElementById(id);
+        el.className = `alert alert-${type} show`;
+        el.textContent = msg;
+        setTimeout(() => el.classList.remove('show'), 5000);
+      }
+    </script>
+  </body>
+</html>
